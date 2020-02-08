@@ -1,0 +1,46 @@
+body {
+    overflow: hidden;
+    background-color: beige;
+    margin: 0;
+    padding: 0;
+}
+
+.controls {
+    position: relative;
+}
+
+button {
+    position: absolute;
+    z-index: 999;
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    background-color: #2FA1D6;
+    background-repeat: no-repeat;
+    background-size: contain;
+    outline: none;
+}
+
+#left {
+    top: 94vh;
+    right: 7vw;
+    background-image: url('/left.png');
+}
+
+#right {
+    top: 94vh;
+    right: 4vw;
+    background-image: url('/right.png');
+}
+
+#zoomIn {
+    top: 88vh;
+    right: 7vw;
+    background-image: url('/zoom-out.png');
+}
+
+#zoomOut {
+    top: 88vh;
+    right: 4vw;
+    background-image: url('/zoom-in.png');
+}
