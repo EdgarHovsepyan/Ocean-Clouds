@@ -1,4 +1,4 @@
-# Ocean & Cloud
+# Ocean & Clouds
 
 *This project demostrates the ability to create dynamically generated ocean and cloud using ThreeJS and WebGL*
 
