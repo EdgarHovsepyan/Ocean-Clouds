@@ -12,19 +12,59 @@
 		<div id="info">
 			{{!-- <a href="http://threejs.org" target="_blank" rel="noopener">three.js</a> - webgl ocean --}}
 		</div>
+		<script id="vs" type="x-shader/x-vertex">
+
+			varying vec2 vUv;
+
+			void main() {
+
+				vUv = uv;
+				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+
+			}
+
+		</script>
+
+		<script id="fs" type="x-shader/x-fragment">
+
+			uniform sampler2D map;
+
+			uniform vec3 fogColor;
+			uniform float fogNear;
+			uniform float fogFar;
+
+			varying vec2 vUv;
+
+			void main() {
+
+				float depth = gl_FragCoord.z / gl_FragCoord.w;
+				float fogFactor = smoothstep( fogNear, fogFar, depth );
+
+				gl_FragColor = texture2D( map, vUv );
+				gl_FragColor.w *= pow( gl_FragCoord.z, 20.0 );
+				gl_FragColor = mix( gl_FragColor, vec4( fogColor, gl_FragColor.w ), fogFactor );
+
+			}
+
+		</script>
 
 		<script type="module">
 
 			import * as THREE from '/three.module.js';
 
-			import { GUI } from '/dat.gui.module.js';
 			import { OrbitControls } from '/OrbitControls.js';
 			import { Water } from '/Water.js';
 			import { Sky } from '/Sky.js';
-
+			import { LightningStorm } from '/LightningStorm.js';
+			import { EffectComposer } from '/EffectComposer.js';
+			import { RenderPass } from '/RenderPass.js';
+			import { OutlinePass } from '/OutlinePass.js';
+			import { GLTFLoader } from '/GLTFLoader.js';
+			import { TWEEN } from '/tween.module.min.js';
+			
 			var container;
-			var camera, scene, renderer, light;
-			var controls, water, sphere, cloudParticles = [], flash, rain, rainGeo, rainCount = 15000;
+			var camera, scene, renderer, light, composer, storm, lightningColor, outlineColor, rayParams, lightningMaterial, outlineEnabled, ship = false;
+			var controls, water, cloudParticles = [], flash, flash2, orangeLight, redLight, rain, rainGeo, rainCount = 30000;
 
 			init();
 			animate();
@@ -46,12 +86,14 @@
 
 				//
 
-				camera = new THREE.PerspectiveCamera( 55, window.innerWidth / window.innerHeight, 1, 20000 );
+				camera = new THREE.PerspectiveCamera( 55, window.innerWidth / window.innerHeight, 0.1, 80000 );
 				camera.position.set( 30, 30, 100 );
-
+		
 				//
 
-				light = new THREE.DirectionalLight( 0xffffff, 0.8 );
+				composer = new EffectComposer( renderer );
+
+				light = new THREE.DirectionalLight( 0xffffff, 1 );
 				scene.add( light );
 
 				// Water
@@ -73,9 +115,9 @@
 						alpha: 1.0,
 						sunDirection: light.position.clone().normalize(),
 						sunColor: 0xffffff,
-						waterColor: 0x001e0f,
+						waterColor: new THREE.Color("rgb(4, 13, 22)"),
 						distortionScale: 3.7,
-						fog: scene.fog !== undefined
+						fog: scene?.fog
 					}
 				);
 
@@ -96,28 +138,30 @@
 
 				var parameters = {
 					distance: 400,
-					inclination: 0.49,
-					azimuth: 0.205
+					inclination: 0.45,
+					azimuth: 0.01
 				};
 
-                //
-
                 flash = new THREE.PointLight(0x062d89, 30, 500, 3);
-                flash.position.set(200, 300, 100);
+                flash.position.set(200, 150, 100);
+				flash.intensity = 10;
                 scene.add(flash);
 
-                let orangeLight = new THREE.PointLight(0xcc6600, 50, 450, 1.7);
-                flash.position.set(100, 300, 100);
+				flash2 = new THREE.PointLight(0x777777, 30, 450, 10);
+                flash2.position.set(-100, 150, -100);
+				flash2.intensity = 10;
+                scene.add(flash2);
+
+                orangeLight = new THREE.PointLight(0xcc6600, 150, 450, 10);
+                orangeLight.position.set(200, 150, 100);
                 scene.add(orangeLight);
 
-                let redLight = new THREE.PointLight(0xd8547e, 50, 500, 1.7);
-                flash.position.set(200, 300, 100);
+                redLight = new THREE.PointLight(new THREE.Color("rgb(165, 157, 209)"), 150, 500, 3);
+                redLight.position.set(-200, 150, -200);
                 scene.add(redLight);
 
-                //
-
                 rainGeo = new THREE.Geometry();
-                for(let i =0; i < rainCount; i++ ){
+                for(let i = 0; i < rainCount; i++ ){
                     let rainDrop = new THREE.Vector3(
                         Math.random() * 400 - 200,
                         Math.random() * 500 - 250,
@@ -131,8 +175,9 @@
 
                 let rainMaterial = new THREE.PointsMaterial({
                     color: 0xaaaaaa,
-                    size: 0.1,
-                    transparent: true
+                    size: 0.01,
+                    transparent: true,
+					opacity: 0.6
                 })
 
                 rain = new THREE.Points(rainGeo, rainMaterial);
@@ -141,40 +186,52 @@
                 //
 
                 let cloudGeo, cloudMaterial;
+				var fog = new THREE.Fog( 0x4584b4, - 100, 3000 );
 
-                let loader_ = new THREE.TextureLoader();
-                    loader_.load("smoke.png", function(texture){
-                      cloudGeo = new THREE.PlaneBufferGeometry(1500,1500);
-                      cloudMaterial = new THREE.MeshLambertMaterial({
-                        map: texture,
-                        transparent: true
-                      });
-                      for(let p=0; p < 25; p++) {
-                        let cloud = new THREE.Mesh(cloudGeo,cloudMaterial);
-                        cloud.position.set(
-                          Math.random()* 800 - 400,
-                          400,
-                          Math.random()* 500 - 450
-                        );
-                        cloud.rotation.x = 1.16;
-                        cloud.rotation.y = -0.12;
-                        cloud.rotation.z = Math.random() * 2 * Math.PI;
-                        cloud.material.opacity = 0.55;
-                        scene.add(cloud);
-                      }
-                });
+				cloudGeo = new THREE.PlaneBufferGeometry(500,500);
+				cloudMaterial = new THREE.ShaderMaterial( {
+					uniforms: {
+
+						map: { type: "t",value: loader.load( 'smoke.png', texture => {
+												texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+												texture.magFilter = THREE.LinearMipMapLinearFilter;
+												texture.minFilter = THREE.LinearMipMapLinearFilter;
+											} ) },
+						fogColor : { type: "c", value: fog.color },
+						fogNear : { type: "f", value: fog.near },
+						fogFar : { type: "f", value: fog.far },
+
+					},
+					vertexShader: document.getElementById( 'vs' ).textContent,
+					fragmentShader: document.getElementById( 'fs' ).textContent,
+					depthWrite: false,
+					depthTest: true,
+					transparent: true
+
+				});
+                      
+				for(let p = 0; p < 100; p++) {
+					let cloud = new THREE.Mesh(cloudGeo, cloudMaterial);
+					cloud.position.set(
+						Math.random()* 2050 - 700,
+						150,
+						Math.random()* 2505 - 700
+					);
+					cloud.rotation.x = Math.PI/2;
+					cloudParticles.push(cloud)
+					scene.add(cloud);
+				}
 
                 //
 
-				var cubeCamera = new THREE.CubeCamera( 0.1, 1, 512 );
-				cubeCamera.renderTarget.texture.generateMipmaps = true;
-				cubeCamera.renderTarget.texture.minFilter = THREE.LinearMipmapLinearFilter;
+				let cubeRenderTarget = new THREE.WebGLCubeRenderTarget( 128, { format: THREE.RGBFormat, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter } )
+				var cubeCamera = new THREE.CubeCamera( 0.1, 1, cubeRenderTarget );
                 scene.fog = new THREE.FogExp2(0x11111f, 0.002);
                 
                 renderer.setClearColor(scene.fog.color);
 
 
-                let ambient = new THREE.AmbientLight(0x555555);
+                let ambient = new THREE.AmbientLight(0x555555, 0.5);
                 scene.add(ambient);
 
 				scene.background = cubeCamera.renderTarget;
@@ -197,68 +254,177 @@
 
 				updateSun();
 
-				//
+				createStormScene()
 
-				var geometry = new THREE.IcosahedronBufferGeometry( 20, 1 );
-				var count = geometry.attributes.position.count;
+				function createStormScene() {
 
-				var colors = [];
-				var color = new THREE.Color();
+					scene.canGoBackwardsInTime = false;
+	
+					// Ground
+	
+					var GROUND_SIZE = 1000;
+	
+					// Storm
+	
+					lightningColor = new THREE.Color( 0xB0FFFF );
+					outlineColor = new THREE.Color( "rgb(220,223,238)" );
+	
+					lightningMaterial = new THREE.MeshBasicMaterial( { color: lightningColor, emissive: 0xffffff } );
+	
+					var rayDirection = new THREE.Vector3( 0, - 1, 0 );
+					var rayLength = 0;
+					var vec1 = new THREE.Vector3();
+					var vec2 = new THREE.Vector3();
+	
+					rayParams = {
+					
+						radius0: 1,
+						radius1: 0.5,
+						minRadius: 0.3,
+						maxIterations: 7,
+	
+						timeScale: 0.15,
+						propagationTimeFactor: 0.2,
+						vanishingTimeFactor: 0.9,
+						subrayPeriod: 4,
+						subrayDutyCycle: 0.6,
+	
+						maxSubrayRecursion: 3,
+						ramification: 3,
+						recursionProbability: 0.4,
+	
+						roughness: 0.85,
+						straightness: 0.65,
+	
+						onSubrayCreation: function ( segment, parentSubray, childSubray, lightningStrike ) {
+						
+							lightningStrike.subrayConePosition( segment, parentSubray, childSubray, 0.6, 0.6, 0.5 );
+	
+							// Plane projection
+	
+							rayLength = lightningStrike.rayParameters.sourceOffset.y;
+							vec1.subVectors( childSubray.pos1, lightningStrike.rayParameters.sourceOffset );
+							var proj = rayDirection.dot( vec1 );
+							vec2.copy( rayDirection ).multiplyScalar( proj );
+							vec1.sub( vec2 );
+							var scale = proj / rayLength > 0.5 ? rayLength / proj : 1;
+							vec2.multiplyScalar( scale );
+							vec1.add( vec2 );
+							childSubray.pos1.addVectors( vec1, lightningStrike.rayParameters.sourceOffset );
+	
+						}
+	
+					};
+	
+					
+					storm = new LightningStorm( {
+					
+						size: GROUND_SIZE,
+						minHeight: 500,
+						maxHeight: 600,
+						maxSlope: 1.5,
+						maxLightnings: 3,
+	
+						lightningParameters: rayParams,
+	
+						lightningMaterial: lightningMaterial
+	
+					} );
 
-				for ( var i = 0; i < count; i += 3 ) {
+				scene.add( storm );
 
-					color.setHex( Math.random() * 0xffffff );
+				// Compose rendering
 
-					colors.push( color.r, color.g, color.b );
-					colors.push( color.r, color.g, color.b );
-					colors.push( color.r, color.g, color.b );
+				function createOutline( scene, objectsArray, visibleColor ) {
+
+					var outlinePass = new OutlinePass( new THREE.Vector2( window.innerWidth, window.innerHeight ), scene, camera, objectsArray );
+					outlinePass.edgeStrength = 2.5;
+					outlinePass.edgeGlow = 0.7;
+					outlinePass.edgeThickness = 2.8;
+					outlinePass.visibleEdgeColor = visibleColor;
+					outlinePass.hiddenEdgeColor.set( 0 );
+					composer.addPass( outlinePass );
+
+					outlineEnabled = true;
+
+					return outlinePass;
 
 				}
 
-				geometry.addAttribute( 'color', new THREE.Float32BufferAttribute( colors, 3 ) );
+				composer.passes = [];
+				composer.addPass( new RenderPass( scene, camera ) );
+				createOutline( scene, storm.lightningsMeshes, outlineColor );
+				
+			}
 
-				var material = new THREE.MeshStandardMaterial( {
-					vertexColors: THREE.VertexColors,
-					roughness: 0.0,
-					flatShading: true,
-					envMap: cubeCamera.renderTarget.texture,
-					side: THREE.DoubleSide
-				} );
+			let gltfLoader = new GLTFLoader();
+			gltfLoader.load("nav.glb", gltf => {
+				ship = gltf.scene;
+				ship.scale.set(0.05, 0.05, 0.05);
+				ship.position.y = 10;
+				ship.rotation.z = -0.02;
+				ship.rotation.x = 0.01;
+				scene.add(ship)
+				ship.traverse(item => {
+					if(item.isMesh) console.log(item)
+				})
+				let to_ = new THREE.Vector3(0, 8, 0);
+				let from_ = ship.position.clone();
 
-				sphere = new THREE.Mesh( geometry, material );
-				{{!-- scene.add( sphere ); --}}
+				let tween_ = new TWEEN.Tween(from_)
+					.to(to_, 2000)
+					.repeat(5000)				
+					.easing(TWEEN.Easing.Sinusoidal.InOut)
+					.onUpdate(function () {
+						ship.position.y = this._object.y;
+					})
+					.start();
+
+				tween_._yoyo = true;
+
+				let to_rotate = new THREE.Vector3(-0.01, 0, 0.02);
+				let from_rotate = ship.rotation.clone();
+
+				let tween_rotate = new TWEEN.Tween(from_rotate)
+					.to(to_rotate, 2000)
+					.repeat(5000)				
+					.easing(TWEEN.Easing.Sinusoidal.InOut)
+					.onUpdate(function () {
+						ship.rotation.z = this._object.z;
+						ship.rotation.x = this._object.x;
+					})
+					.start();
+
+				tween_rotate._yoyo = true;
+
+
+			})	
+
+			gltfLoader.load("raidenDark.glb", gltf => {
+				gltf.scene.scale.set(3, 3, 3);
+				gltf.scene.position.y = 16;
+				gltf.scene.rotation.y = Math.PI;
+				gltf.scene.position.z = 26
+				scene.add(gltf.scene)
+				
+			})
+
+
+				
 
 				//
 
 				controls = new OrbitControls( camera, renderer.domElement );
-				//controls.maxPolarAngle = Math.PI * 0.495;
+				//controls.maxPolarAngle = Math.PI/2;
 				controls.target.set( 0, 10, 0 );
 				controls.minDistance = 40.0;
-				controls.maxDistance = 200.0;
+				controls.maxDistance = 300.0;
 				controls.update();
-
-				// GUI
-
-				var gui = new GUI();
-
-				var folder = gui.addFolder( 'Sky' );
-				folder.add( parameters, 'inclination', 0, 0.5, 0.0001 ).onChange( updateSun );
-				folder.add( parameters, 'azimuth', 0, 1, 0.0001 ).onChange( updateSun );
-				folder.open();
-
-				var uniforms = water.material.uniforms;
-
-				var folder = gui.addFolder( 'Water' );
-				folder.add( uniforms.distortionScale, 'value', 0, 8, 0.1 ).name( 'distortionScale' );
-				folder.add( uniforms.size, 'value', 0.1, 10, 0.1 ).name( 'size' );
-				folder.add( uniforms.alpha, 'value', 0.9, 1, .001 ).name( 'alpha' );
-				folder.open();
-
-				//
 
 				window.addEventListener( 'resize', onWindowResize, false );
 
 			}
+			
 
 			function onWindowResize() {
 
@@ -269,8 +435,12 @@
 
 			}
 
+			
+
 			function animate() {
-                
+				
+				TWEEN.update();
+
 				requestAnimationFrame( animate );
 				render();
 
@@ -280,32 +450,42 @@
 
 				var time = performance.now() * 0.001;
 
-				sphere.position.y = Math.sin( time ) * 20 + 5;
-				sphere.rotation.x = time * 0.5;
-				sphere.rotation.z = time * 0.51;
-
 				water.material.uniforms[ 'time' ].value += 1.0 / 60.0;
 
                 cloudParticles.forEach(item => {
-                    item.rotation.z -= 0.002;
+                    item.rotation.z -= 0.0008;
                 });
+
+				storm?.update( time );
+
+				if ( outlineEnabled ) {
+
+					composer.render();
+
+                    if(Math.random() > 0.96 || flash.power > 150) {
+                        if(flash.power < 100) flash.position.set(Math.random() * 100, 200 + Math.random() * 200, 100);
+                        flash.power = 100 + Math.random() * 500;
+						flash2.power = 100 + Math.random() * 500;
+						orangeLight.power = 100 + Math.random() * 500;
+						redLight.power = 100 + Math.random() * 500;
+                    };
+
+				}	else {
+
+					renderer.render( scene, camera );
+
+				}
 
                 rainGeo.vertices.forEach(p => {
                     p.velocity -= 0.1 + Math.random() * 0.1;
                     p.y += p.velocity;
-                    if( p.y < -200 ) {
-                        p.y = 200;
+                    if( p.y < -150 ) {
+                        p.y = 150;
                         p.velocity = 0;
                     }
                 });
 
                 rainGeo.verticesNeedUpdate = true;
-
-
-                if(Math.random() > 0.93 || flash.power > 100) {
-                    if(flash.powe < 100) flash.position.set(Math.random() * 400, 300 + Math.random() * 500, 100);
-                    flash.power = 50 + Math.random() * 500;
-                };
 
 				renderer.render( scene, camera );
 

@@ -7,6 +7,7 @@ var http = require('http').createServer(app);
 
 app.use(express.static('build'));
 app.use(express.static('textures'));
+app.use(express.static('models'));
 app.use(express.static('style'));
 
 
